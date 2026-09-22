@@ -1,0 +1,23 @@
+name: vinstall checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install --yes shellcheck
+      - name: Check Bash syntax
+        run: bash -n vinstall.sh tests/test_vinstall.sh
+      - name: Run ShellCheck
+        run: shellcheck --severity=warning vinstall.sh tests/test_vinstall.sh
+      - name: Run tests
+        run: bash tests/test_vinstall.sh
+      - name: Check patch formatting
+        run: git diff --check
+      - name: Verify self-repair checksum
+        run: sha256sum -c vinstall.sh.sha256
