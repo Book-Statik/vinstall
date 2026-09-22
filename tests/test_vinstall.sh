@@ -52,7 +52,7 @@ pass "vinstall self-repair validates and installs a fresh script"
 
 xbps_find(){ printf 'example result\n'; }
 install_xbps(){ printf '%s' "$1" > "$TEST_HOME/selected"; }
-VINSTALL_YES=1
+export VINSTALL_YES=1
 pick example
 [[ $(cat "$TEST_HOME/selected") == example ]] || fail "--yes selects the available backend"
 pass "--yes selects the available backend"
