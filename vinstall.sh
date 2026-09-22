@@ -4,8 +4,8 @@ set -o pipefail
 
 VERSION="2.1"
 APP_NAME="vinstall"
-SOURCE_URL="https://raw.githubusercontent.com/TheRussianMafia/vinstall/main/vinstall.sh"
-CHECKSUM_URL="https://raw.githubusercontent.com/TheRussianMafia/vinstall/main/vinstall.sh.sha256"
+SOURCE_URL="https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh"
+CHECKSUM_URL="https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh.sha256"
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/$APP_NAME"
 DB="$STATE/packages.db"
 ARCHBOX="${VINSTALL_ARCH_BOX:-vinstall-arch}"

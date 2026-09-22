@@ -23,20 +23,20 @@ when an AUR package is actually selected for installation.
 
 Download the latest installer directly from GitHub:
 
-[Download vinstall.sh](https://raw.githubusercontent.com/TheRussianMafia/vinstall/main/vinstall.sh)
+[Download vinstall.sh](https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh)
 
 To install the command directly without first saving the file manually, run
 this in a Void Linux terminal:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/TheRussianMafia/vinstall/main/vinstall.sh | sudo tee /usr/local/bin/vinstall >/dev/null && sudo chmod 755 /usr/local/bin/vinstall && vinstall --setup
+curl -fsSL https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh | sudo tee /usr/local/bin/vinstall >/dev/null && sudo chmod 755 /usr/local/bin/vinstall && vinstall --setup
 ```
 
 The setup output identifies itself as `vinstall`. For a fetched script that
 should only run setup without installing the command, use:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/TheRussianMafia/vinstall/main/vinstall.sh | bash -s -- --setup
+curl -fsSL https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh | bash -s -- --setup
 ```
 
 The `main` URL tracks the latest source. For reproducible automation, replace
@@ -44,7 +44,7 @@ The `main` URL tracks the latest source. For reproducible automation, replace
 
 ```sh
 REVISION=COMMIT_SHA
-curl -fsSL "https://raw.githubusercontent.com/TheRussianMafia/vinstall/$REVISION/vinstall.sh" | bash -s -- --setup
+curl -fsSL "https://raw.githubusercontent.com/Book-Statik/vinstall/$REVISION/vinstall.sh" | bash -s -- --setup
 ```
 
 ### From a local checkout
