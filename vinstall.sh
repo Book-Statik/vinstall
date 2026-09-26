@@ -2,7 +2,7 @@
 set -u
 set -o pipefail
 
-VERSION="2.7"
+VERSION="2.8"
 APP_NAME="vinstall"
 SOURCE_URL="https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh"
 CHECKSUM_URL="https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh.sha256"
@@ -156,7 +156,7 @@ choose_common_app(){
   printf '  0) cancel\n' >&2
   read -r -p 'Choose an option: ' choice || return 1
   [[ "$choice" =~ ^[0-9]+$ ]] || { warn 'Invalid common application choice.'; return 1; }
-  ((choice == 0)) && return 1
+  ((choice == 0)) && return 0
   ((choice >= 1 && choice <= ${#options[@]})) || { warn 'Invalid common application choice.'; return 1; }
   entry="${options[$((choice - 1))]}"
   printf '%s' "${entry%%$'\t'*}"
@@ -396,6 +396,7 @@ pick(){
   common=$(common_app_key "$q" || true)
   if [[ -n "$common" ]]; then
     q=$(choose_common_app "$common") || return 1
+    [[ -n "$q" ]] || return 0
   fi
 
   native=$(native_backend)

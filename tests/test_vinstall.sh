@@ -120,6 +120,8 @@ pass "Prism Launcher aliases resolve to its Flatpak ID"
 [[ "$(package_for aur minecraft-atlauncher)" == atlauncher ]] || fail "ATLauncher resolves to its AUR package"
 [[ "$(VINSTALL_YES=1 choose_common_app minecraft)" == minecraft-prism ]] || fail "--yes chooses the recommended Minecraft launcher"
 [[ "$(VINSTALL_YES=0 choose_common_app minecraft 2>/dev/null <<< '2')" == minecraft-official ]] || fail "Minecraft launcher menu honors the selected option"
+cancelled_choice=$(VINSTALL_YES=0 choose_common_app minecraft 2>/dev/null <<< '0') || fail "cancel selection returns success"
+[[ -z "$cancelled_choice" ]] || fail "cancel selection returns no launcher"
 pass "Minecraft launcher choices resolve to backend package IDs"
 
 native_backend(){ printf 'apt'; }
@@ -142,6 +144,9 @@ VINSTALL_YES=1 pick minecraft
 [[ $(cat "$TEST_HOME/alias-selected") == 'prismlauncher|minecraft' ]] || fail "minecraft defaults to Prism Launcher and preserves the common name"
 VINSTALL_YES=0 pick minecraft <<< $'2\n1' 2>/dev/null
 [[ $(cat "$TEST_HOME/alias-selected") == 'minecraft-launcher|minecraft' ]] || fail "minecraft can select the official launcher"
+previous_install=$(cat "$TEST_HOME/alias-selected")
+VINSTALL_YES=0 pick minecraft <<< '0' >/dev/null 2>&1 || fail "canceling the common app menu exits successfully"
+[[ $(cat "$TEST_HOME/alias-selected") == "$previous_install" ]] || fail "canceling the common app menu does not install"
 pass "Minecraft choices install their package and retain the typed name"
 
 native_has(){ return 1; }
