@@ -21,6 +21,10 @@ pass(){ printf 'ok - %s\n' "$1"; }
 [[ "$(shell_quote "package name")" == "package\ name" ]] || fail "shell_quote escapes spaces"
 pass "shell_quote escapes spaces"
 
+usage_output=$(usage)
+[[ "$usage_output" != *'Use `vsc`'* && "$usage_output" != *'Use `vinstall -S minecraft`'* && "$usage_output" != *'Use `prism`'* ]] || fail "usage includes app shortcut hints"
+pass "usage omits app shortcut hints"
+
 [[ "$(VINSTALL_SOURCE_ONLY=0 bash "$ROOT/vinstall.sh" --fastfetch)" == vinstall ]] || fail "Fastfetch helper prints the package-manager name"
 pass "Fastfetch helper prints vinstall"
 

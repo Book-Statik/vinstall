@@ -2,7 +2,7 @@
 set -u
 set -o pipefail
 
-VERSION="2.6"
+VERSION="2.7"
 APP_NAME="vinstall"
 SOURCE_URL="https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh"
 CHECKSUM_URL="https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh.sha256"
@@ -705,9 +705,6 @@ vinstall — package manager frontend for Linux
 The native backend uses the host distribution's package manager. Flatpak,
 Nix, and the isolated Arch/AUR backend are optional additional sources.
 Supported native managers: XBPS, APT, DNF, rpm-ostree, Zypper, and Pacman.
-Use `vsc` (or `vscode`) as a shortcut for Visual Studio Code.
-Use `vinstall -S minecraft` for a curated launcher selection.
-Use `prism` (or `prismlauncher`) to resolve Prism Launcher directly.
 For Flatpak, search by app name and choose a match; IDs are resolved automatically.
 Fastfetch config can use a command module with text: "vinstall --fastfetch".
 EOF
