@@ -171,4 +171,33 @@ if aur_preflight 'not a valid package name' >/dev/null 2>&1; then
 fi
 pass "AUR preflight rejects invalid package names"
 
+nix_ready=0
+have(){ [[ "$1" == curl ]] || [[ "$1" == nix && "$nix_ready" == 1 ]]; }
+curl(){ printf ':\n'; }
+source_nix(){ nix_ready=1; }
+ensure_nix >/dev/null 2>&1 || fail "Nix installer success is recognized"
+pass "Nix setup sources the installed profile"
+nix_ready=0
+curl(){ return 1; }
+if ensure_nix >/dev/null 2>&1; then
+  fail "Nix download failure is reported"
+fi
+pass "Nix download failures return a setup warning"
+nix_ready=0
+have(){ [[ "$1" == wget ]] || [[ "$1" == nix && "$nix_ready" == 1 ]]; }
+wget(){ printf ':\n'; }
+ensure_nix >/dev/null 2>&1 || fail "Nix installer uses wget when curl is unavailable"
+pass "Nix setup supports a secure wget fallback"
+
+native_backend(){ printf 'apt'; }
+install_system_packages(){ return 0; }
+nix_setup_calls=0
+aur_setup_calls=0
+ensure_nix(){ nix_setup_calls=$((nix_setup_calls + 1)); return 0; }
+ensure_arch(){ aur_setup_calls=$((aur_setup_calls + 1)); return 0; }
+flatpak(){ return 0; }
+setup >/dev/null 2>&1 || fail "setup runs successfully with mocked backends"
+[[ "$nix_setup_calls" == 1 && "$aur_setup_calls" == 1 ]] || fail "setup initializes Nix and the AUR container"
+pass "setup initializes both Nix and AUR backends"
+
 printf 'all vinstall tests passed\n'

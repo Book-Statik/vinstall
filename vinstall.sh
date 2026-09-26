@@ -2,7 +2,7 @@
 set -u
 set -o pipefail
 
-VERSION="2.8"
+VERSION="2.9"
 APP_NAME="vinstall"
 SOURCE_URL="https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh"
 CHECKSUM_URL="https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh.sha256"
@@ -234,10 +234,10 @@ aur_preflight(){
 }
 
 ensure_arch(){
-  have distrobox || die "Distrobox is required for AUR support. Install it with your system package manager."
+  have distrobox || { warn "Distrobox is required for AUR support; install it with your system package manager."; return 1; }
   if ! arch_exists; then
     echo "Creating isolated Arch Linux environment for AUR..."
-    distrobox create --name "$ARCHBOX" --image archlinux:latest --yes || die "Could not create Arch container."
+    distrobox create --name "$ARCHBOX" --image archlinux:latest --yes || { warn "Could not create Arch container."; return 1; }
   fi
   arch 'sudo pacman -Syu --needed --noconfirm base-devel git sudo' || return 1
   if ! arch 'command -v yay >/dev/null 2>&1'; then
@@ -288,10 +288,38 @@ ensure_nix(){
   fi
 
   echo "Nix is not installed. Installing the single-user Nix backend..."
-  if ! have curl; then install_system_packages curl || return 1; fi
-  bash <(curl -L https://nixos.org/nix/install) --no-daemon
+  if ! have curl && ! have wget; then
+    install_system_packages curl || { warn "Could not install curl for the Nix installer."; return 1; }
+  fi
+  local installer
+  installer=$(mktemp) || { warn "Could not create a temporary Nix installer file."; return 1; }
+  if have curl; then
+    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+      https://nixos.org/nix/install > "$installer" || {
+        rm -f "$installer"
+        warn "Could not download the official Nix installer."
+        return 1
+      }
+  elif have wget; then
+    wget --https-only --secure-protocol=TLSv1_2 -qO- \
+      https://nixos.org/nix/install > "$installer" || {
+        rm -f "$installer"
+        warn "Could not download the official Nix installer."
+        return 1
+      }
+  else
+    rm -f "$installer"
+    warn "Neither curl nor wget is available yet; reboot if system packages were just layered, then rerun vinstall --setup."
+    return 1
+  fi
+  if ! bash "$installer" --no-daemon; then
+    rm -f "$installer"
+    warn "The Nix installer failed."
+    return 1
+  fi
+  rm -f "$installer"
   source_nix
-  have nix || die "Nix installation completed but nix is not available in this shell. Open a new terminal and run vinstall again."
+  have nix || { warn "Nix installation finished, but nix is not available in this shell. Open a new terminal and run vinstall again."; return 1; }
 }
 
 install_xbps(){
@@ -647,7 +675,8 @@ setup(){
   echo "Installing Nix..."
   ensure_nix || { warn "Nix setup was not completed."; setup_warnings=1; }
   echo
-  echo "AUR support is lazy and will create the Arch container only when an AUR package is installed."
+  echo "Initializing the isolated Arch environment for AUR..."
+  ensure_arch || { warn "AUR setup was not completed; run vinstall --setup again after resolving the issue."; setup_warnings=1; }
   echo
   echo "Setting up Flathub..."
   flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || { warn "Could not configure Flathub."; setup_warnings=1; }
