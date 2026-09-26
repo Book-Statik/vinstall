@@ -107,6 +107,8 @@ vinstall -S --source apt firefox
 vinstall --yes -S firefox
 vinstall -A visual-studio-code-bin
 vinstall -S vsc
+vinstall -S minecraft
+vinstall -Ss minecraft
 vinstall -Q
 vinstall -Qi firefox
 vinstall -R firefox
@@ -127,6 +129,13 @@ first available backend, preferring AUR for `-A`. The shortcut `vsc` (also
 `vscode` and `visual-studio-code`) maps to the package name or application ID
 used by each backend. For other Flatpak applications, use the exact
 application ID when selecting directly.
+`minecraft` (or `mc`) opens a launcher menu with Prism Launcher, the official
+Minecraft Launcher, and ATLauncher. Prism is the default for `--yes`; choosing
+a launcher then checks which backends provide it. `-Ss minecraft` also lists
+these common choices alongside repository search results. There is no single
+complete cross-distro database of human names and package IDs, so these
+multi-choice mappings are curated; other names continue through the normal
+backend searches.
 When needed, the AUR backend creates an Arch Linux container named
 `vinstall-arch` and installs `yay` inside it. Set `VINSTALL_ARCH_BOX` to use a
 different container name.

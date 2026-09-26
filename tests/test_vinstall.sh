@@ -93,6 +93,13 @@ pass "native backend wins over AUR"
 [[ "$(package_for aur vsc)" == visual-studio-code-bin ]] || fail "vsc resolves to the AUR package"
 pass "vsc resolves to backend-specific package names"
 
+[[ "$(package_for flatpak minecraft-prism)" == org.prismlauncher.PrismLauncher ]] || fail "Prism Launcher resolves to its Flatpak ID"
+[[ "$(package_for aur minecraft-official)" == minecraft-launcher ]] || fail "official launcher resolves to its AUR package"
+[[ "$(package_for aur minecraft-atlauncher)" == atlauncher ]] || fail "ATLauncher resolves to its AUR package"
+[[ "$(VINSTALL_YES=1 choose_common_app minecraft)" == minecraft-prism ]] || fail "--yes chooses the recommended Minecraft launcher"
+[[ "$(VINSTALL_YES=0 choose_common_app minecraft 2>/dev/null <<< '2')" == minecraft-official ]] || fail "Minecraft launcher menu honors the selected option"
+pass "Minecraft launcher choices resolve to backend package IDs"
+
 native_backend(){ printf 'apt'; }
 native_find(){ printf 'Visual Studio Code package result\n'; }
 native_has(){ return 0; }
@@ -104,6 +111,16 @@ export VINSTALL_YES=1
 pick vsc
 [[ $(cat "$TEST_HOME/alias-selected") == 'code|vsc' ]] || fail "vsc selection installs the native package and tracks its alias"
 pass "vsc selects native package and preserves requested name"
+
+search_output=$(search minecraft)
+[[ "$search_output" == *"Prism Launcher (recommended)"* && "$search_output" == *"ATLauncher (AUR)"* ]] || fail "minecraft search lists common launcher choices"
+pass "minecraft search lists launcher options"
+
+VINSTALL_YES=1 pick minecraft
+[[ $(cat "$TEST_HOME/alias-selected") == 'prismlauncher|minecraft' ]] || fail "minecraft defaults to Prism Launcher and preserves the common name"
+VINSTALL_YES=0 pick minecraft <<< $'2\n1' 2>/dev/null
+[[ $(cat "$TEST_HOME/alias-selected") == 'minecraft-launcher|minecraft' ]] || fail "minecraft can select the official launcher"
+pass "Minecraft choices install their package and retain the typed name"
 
 if aur_preflight 'not a valid package name' >/dev/null 2>&1; then
   fail "AUR preflight accepts invalid package names"

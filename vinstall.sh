@@ -2,7 +2,7 @@
 set -u
 set -o pipefail
 
-VERSION="2.2"
+VERSION="2.3"
 APP_NAME="vinstall"
 SOURCE_URL="https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh"
 CHECKSUM_URL="https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh.sha256"
@@ -80,6 +80,53 @@ nix_find(){ have nix || return 0; nix search nixpkgs "$1" 2>/dev/null | head -30
 arch_exists(){ have distrobox || return 1; distrobox list --no-color 2>/dev/null | awk '{print $1}' | grep -Fxq "$ARCHBOX"; }
 arch(){ distrobox enter "$ARCHBOX" -- bash -lc "$*"; }
 
+common_app_key(){
+  local name="${1,,}"
+  name=${name// /-}
+  case "$name" in
+    minecraft|mc) printf 'minecraft' ;;
+    *) return 1 ;;
+  esac
+}
+
+common_app_options(){
+  case "$1" in
+    minecraft)
+      printf 'minecraft-prism\tPrism Launcher (recommended)\n'
+      printf 'minecraft-official\tOfficial Minecraft Launcher\n'
+      printf 'minecraft-atlauncher\tATLauncher (AUR)\n'
+      ;;
+  esac
+}
+
+choose_common_app(){
+  local app="$1" entry token label choice index=1
+  local -a options=()
+  while IFS= read -r entry; do
+    [[ -n "$entry" ]] && options+=("$entry")
+  done < <(common_app_options "$app")
+  ((${#options[@]})) || return 1
+
+  if [[ "${VINSTALL_YES:-0}" == "1" ]]; then
+    printf '%s' "${options[0]%%$'\t'*}"
+    return 0
+  fi
+
+  printf 'Common %s choices:\n' "$app" >&2
+  for entry in "${options[@]}"; do
+    IFS=$'\t' read -r token label <<< "$entry"
+    printf '  %d) %s\n' "$index" "$label" >&2
+    index=$((index + 1))
+  done
+  printf '  0) cancel\n' >&2
+  read -r -p 'Choose an option: ' choice || return 1
+  [[ "$choice" =~ ^[0-9]+$ ]] || { warn 'Invalid common application choice.'; return 1; }
+  ((choice == 0)) && return 1
+  ((choice >= 1 && choice <= ${#options[@]})) || { warn 'Invalid common application choice.'; return 1; }
+  entry="${options[$((choice - 1))]}"
+  printf '%s' "${entry%%$'\t'*}"
+}
+
 package_for(){
   local source="$1" requested="$2" alias
   alias=${requested,,}
@@ -93,6 +140,18 @@ package_for(){
         aur) printf 'visual-studio-code-bin' ;;
         *) printf 'code' ;;
       esac ;;
+    minecraft-prism)
+      case "$source" in
+        flatpak) printf 'org.prismlauncher.PrismLauncher' ;;
+        *) printf 'prismlauncher' ;;
+      esac ;;
+    minecraft-official)
+      case "$source" in
+        flatpak) printf 'com.mojang.Minecraft' ;;
+        *) printf 'minecraft-launcher' ;;
+      esac ;;
+    minecraft-atlauncher)
+      [[ "$source" == aur ]] && printf 'atlauncher' ;;
     *) printf '%s' "$requested" ;;
   esac
 }
@@ -265,7 +324,16 @@ install_aur(){
 }
 
 search(){
-  local q="$1" native
+  local q="$1" native common entry label
+  common=$(common_app_key "$q" || true)
+  if [[ -n "$common" ]]; then
+    echo "=== Common application choices ==="
+    while IFS= read -r entry; do
+      IFS=$'\t' read -r _ label <<< "$entry"
+      printf '  %s\n' "$label"
+    done < <(common_app_options "$common")
+    echo
+  fi
   native=$(native_backend)
   echo "=== System packages${native:+ / $native} ==="
   [[ -z "$native" ]] || native_find "$(package_for "$native" "$q")" || true
@@ -285,21 +353,30 @@ search(){
 }
 
 pick(){
-  local q="$1"
+  local requested="$1" q="$1" common
   local preferred="${2:-}"
   local native package
   local -a src=()
 
-  native=$(native_backend)
-  if [[ -n "$native" ]] && native_has "$(package_for "$native" "$q")"; then src+=("$native"); fi
-  if have nix && nix_find "$(package_for nix "$q")" | grep -q .; then src+=(nix); fi
-  if have flatpak && flat_find "$(package_for flatpak "$q")" | grep -q .; then src+=(flatpak); fi
-
-  if ((${#src[@]} == 0)) || [[ "${VINSTALL_FORCE_AUR:-0}" == "1" ]]; then
-    if aur_find "$(package_for aur "$q")" | grep -q .; then src+=(aur); fi
+  common=$(common_app_key "$q" || true)
+  if [[ -n "$common" ]]; then
+    q=$(choose_common_app "$common") || return 1
   fi
 
-  ((${#src[@]})) || die "No package found for '$q'. Try: vinstall -Ss $q"
+  native=$(native_backend)
+  package=$(package_for "$native" "$q")
+  if [[ -n "$native" && -n "$package" ]] && native_has "$package"; then src+=("$native"); fi
+  package=$(package_for nix "$q")
+  if have nix && [[ -n "$package" ]] && nix_find "$package" | grep -q .; then src+=(nix); fi
+  package=$(package_for flatpak "$q")
+  if have flatpak && [[ -n "$package" ]] && flat_find "$package" | grep -q .; then src+=(flatpak); fi
+
+  package=$(package_for aur "$q")
+  if ((${#src[@]} == 0)) || [[ "${VINSTALL_FORCE_AUR:-0}" == "1" ]]; then
+    if [[ -n "$package" ]] && aur_find "$package" | grep -q .; then src+=(aur); fi
+  fi
+
+  ((${#src[@]})) || die "No package found for '$requested'. Try: vinstall -Ss $requested"
 
   if [[ -z "$preferred" && "${VINSTALL_YES:-0}" == "1" ]]; then
     preferred="${VINSTALL_FORCE_AUR:+aur}"
@@ -309,22 +386,22 @@ pick(){
   if [[ -n "$preferred" ]]; then
     case " ${src[*]} " in
       *" $preferred "*) ;;
-      *) die "Source '$preferred' has no result for '$q'." ;;
+      *) die "Source '$preferred' has no result for '$requested'." ;;
     esac
     case "$preferred" in
       xbps|apt|dnf|rpm-ostree|zypper|pacman)
         [[ "$preferred" == "$native" ]] || die "Source '$preferred' is not this system's native package manager."
-        install_native "$(package_for "$preferred" "$q")" "$q" ;;
-      nix) install_nix "$(package_for nix "$q")" "$q" ;;
-      flatpak) install_flat "$(package_for flatpak "$q")" "$q" ;;
-      aur) install_aur "$(package_for aur "$q")" "$q" ;;
+        install_native "$(package_for "$preferred" "$q")" "$requested" ;;
+      nix) install_nix "$(package_for nix "$q")" "$requested" ;;
+      flatpak) install_flat "$(package_for flatpak "$q")" "$requested" ;;
+      aur) install_aur "$(package_for aur "$q")" "$requested" ;;
       *) die "Unknown source '$preferred'. Choose the system manager, nix, flatpak, or aur." ;;
     esac
     return
   fi
 
   echo
-  echo "Found '$q' in:"
+  echo "Found '$requested' in:"
   local i=1 s
   for s in "${src[@]}"; do printf '  %d) %s
 ' "$i" "$s"; i=$((i+1)); done
@@ -337,17 +414,17 @@ pick(){
 
   s="${src[$((n - 1))]}"
   case "$s" in
-    xbps|apt|dnf|rpm-ostree|zypper|pacman) install_native "$(package_for "$s" "$q")" "$q" ;;
-    nix) install_nix "$(package_for nix "$q")" "$q" ;;
+    xbps|apt|dnf|rpm-ostree|zypper|pacman) install_native "$(package_for "$s" "$q")" "$requested" ;;
+    nix) install_nix "$(package_for nix "$q")" "$requested" ;;
     flatpak)
       id=$(package_for flatpak "$q")
       if [[ "$id" == "$q" ]]; then
         echo "Flatpak search results may use an application ID."
         read -r -p "Application ID (or exact result ID): " id
       fi
-      install_flat "$id" "$q"
+      install_flat "$id" "$requested"
       ;;
-    aur) install_aur "$(package_for aur "$q")" "$q" ;;
+    aur) install_aur "$(package_for aur "$q")" "$requested" ;;
   esac
 }
 
@@ -591,6 +668,7 @@ The native backend uses the host distribution's package manager. Flatpak,
 Nix, and the isolated Arch/AUR backend are optional additional sources.
 Supported native managers: XBPS, APT, DNF, rpm-ostree, Zypper, and Pacman.
 Use `vsc` (or `vscode`) as a shortcut for Visual Studio Code.
+Use `vinstall -S minecraft` for a curated launcher selection.
 EOF
 }
 
