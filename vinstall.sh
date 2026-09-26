@@ -2,7 +2,7 @@
 set -u
 set -o pipefail
 
-VERSION="2.4"
+VERSION="2.5"
 APP_NAME="vinstall"
 SOURCE_URL="https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh"
 CHECKSUM_URL="https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh.sha256"
@@ -76,6 +76,41 @@ native_has(){
   esac
 }
 flat_find(){ have flatpak || return 0; flatpak search "$1" 2>/dev/null | head -30 || true; }
+flat_results(){
+  have flatpak || return 0
+  flatpak search --columns=application,name "$1" 2>/dev/null |
+    awk 'NR > 1 {
+      app = $1
+      if (app !~ /^[A-Za-z0-9][A-Za-z0-9._-]*$/) next
+      sub(/^[^[:space:]]+[[:space:]]+/, "")
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+      if ($0 != "") printf "%s\t%s\n", app, $0
+    }'
+}
+choose_flatpak_result(){
+  local query="$1" entry app name choice index=1
+  local -a results=()
+  mapfile -t results < <(flat_results "$query")
+  ((${#results[@]})) || { warn "No Flatpak results found for '$query'."; return 1; }
+  if [[ "${VINSTALL_YES:-0}" == "1" || ${#results[@]} -eq 1 ]]; then
+    printf '%s' "${results[0]%%$'\t'*}"
+    return 0
+  fi
+
+  printf 'Flatpak matches for %s:\n' "$query" >&2
+  for entry in "${results[@]}"; do
+    IFS=$'\t' read -r app name <<< "$entry"
+    printf '  %d) %s (%s)\n' "$index" "$name" "$app" >&2
+    index=$((index + 1))
+  done
+  printf '  0) cancel\n' >&2
+  read -r -p 'Choose an app: ' choice || return 1
+  [[ "$choice" =~ ^[0-9]+$ ]] || { warn 'Invalid Flatpak selection.'; return 1; }
+  ((choice == 0)) && return 1
+  ((choice >= 1 && choice <= ${#results[@]})) || { warn 'Invalid Flatpak selection.'; return 1; }
+  entry="${results[$((choice - 1))]}"
+  printf '%s' "${entry%%$'\t'*}"
+}
 nix_find(){ have nix || return 0; nix search nixpkgs "$1" 2>/dev/null | head -30 || true; }
 arch_exists(){ have distrobox || return 1; distrobox list --no-color 2>/dev/null | awk '{print $1}' | grep -Fxq "$ARCHBOX"; }
 arch(){ distrobox enter "$ARCHBOX" -- bash -lc "$*"; }
@@ -355,8 +390,8 @@ search(){
 pick(){
   local requested="$1" q="$1" common
   local preferred="${2:-}"
-  local native package
-  local -a src=()
+  local native package flat_id
+  local -a src=() flat_matches=()
 
   common=$(common_app_key "$q" || true)
   if [[ -n "$common" ]]; then
@@ -369,7 +404,10 @@ pick(){
   package=$(package_for nix "$q")
   if have nix && [[ -n "$package" ]] && nix_find "$package" | grep -q .; then src+=(nix); fi
   package=$(package_for flatpak "$q")
-  if have flatpak && [[ -n "$package" ]] && flat_find "$package" | grep -q .; then src+=(flatpak); fi
+  if have flatpak && [[ -n "$package" ]]; then
+    mapfile -t flat_matches < <(flat_results "$package")
+    ((${#flat_matches[@]})) && src+=(flatpak)
+  fi
 
   package=$(package_for aur "$q")
   if ((${#src[@]} == 0)) || [[ "${VINSTALL_FORCE_AUR:-0}" == "1" ]]; then
@@ -393,7 +431,10 @@ pick(){
         [[ "$preferred" == "$native" ]] || die "Source '$preferred' is not this system's native package manager."
         install_native "$(package_for "$preferred" "$q")" "$requested" ;;
       nix) install_nix "$(package_for nix "$q")" "$requested" ;;
-      flatpak) install_flat "$(package_for flatpak "$q")" "$requested" ;;
+      flatpak)
+        flat_id=$(choose_flatpak_result "$(package_for flatpak "$q")") || return 1
+        install_flat "$flat_id" "$requested"
+        ;;
       aur) install_aur "$(package_for aur "$q")" "$requested" ;;
       *) die "Unknown source '$preferred'. Choose the system manager, nix, flatpak, or aur." ;;
     esac
@@ -417,12 +458,8 @@ pick(){
     xbps|apt|dnf|rpm-ostree|zypper|pacman) install_native "$(package_for "$s" "$q")" "$requested" ;;
     nix) install_nix "$(package_for nix "$q")" "$requested" ;;
     flatpak)
-      id=$(package_for flatpak "$q")
-      if [[ "$id" == "$q" ]]; then
-        echo "Flatpak search results may use an application ID."
-        read -r -p "Application ID (or exact result ID): " id
-      fi
-      install_flat "$id" "$requested"
+      flat_id=$(choose_flatpak_result "$(package_for flatpak "$q")") || return 1
+      install_flat "$flat_id" "$requested"
       ;;
     aur) install_aur "$(package_for aur "$q")" "$requested" ;;
   esac
@@ -670,6 +707,7 @@ Supported native managers: XBPS, APT, DNF, rpm-ostree, Zypper, and Pacman.
 Use `vsc` (or `vscode`) as a shortcut for Visual Studio Code.
 Use `vinstall -S minecraft` for a curated launcher selection.
 Use `prism` (or `prismlauncher`) to resolve Prism Launcher directly.
+For Flatpak, search by app name and choose a match; IDs are resolved automatically.
 EOF
 }
 

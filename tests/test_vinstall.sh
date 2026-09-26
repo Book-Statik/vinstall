@@ -93,6 +93,16 @@ pass "native backend wins over AUR"
 [[ "$(package_for aur vsc)" == visual-studio-code-bin ]] || fail "vsc resolves to the AUR package"
 pass "vsc resolves to backend-specific package names"
 
+have(){ [[ "$1" == flatpak ]]; }
+flatpak(){
+  printf 'Application ID Name\norg.example.One Cool Editor\norg.example.Two Cool Editor Beta\n'
+}
+flat_results_output=$(flat_results editor)
+[[ "$flat_results_output" == $'org.example.One\tCool Editor\norg.example.Two\tCool Editor Beta' ]] || fail "Flatpak search parses IDs and app names"
+pass "Flatpak search returns structured app results"
+unset -f flatpak
+have(){ command -v "$1" >/dev/null 2>&1; }
+
 [[ "$(package_for flatpak prism)" == org.prismlauncher.PrismLauncher ]] || fail "prism resolves to the Flatpak application ID"
 [[ "$(package_for flatpak prism-launcher)" == org.prismlauncher.PrismLauncher ]] || fail "prism-launcher resolves to the Flatpak application ID"
 [[ "$(package_for flatpak prismlauncher)" == org.prismlauncher.PrismLauncher ]] || fail "prismlauncher resolves to the Flatpak application ID"
@@ -129,11 +139,19 @@ pass "Minecraft choices install their package and retain the typed name"
 
 native_has(){ return 1; }
 have(){ [[ "$1" == flatpak ]]; }
-flat_find(){ [[ "$1" == org.prismlauncher.PrismLauncher ]] && printf 'Prism Launcher result\n'; }
+flat_results(){
+  case "$1" in
+    org.prismlauncher.PrismLauncher) printf 'org.prismlauncher.PrismLauncher\tPrism Launcher\n' ;;
+    editor) printf 'org.example.One\tCool Editor\norg.example.Two\tCool Editor Beta\n' ;;
+  esac
+}
 install_flat(){ printf '%s|%s' "$1" "$2" > "$TEST_HOME/prism-selected"; }
 VINSTALL_YES=0 pick prism <<< '1' 2>/dev/null
 [[ $(cat "$TEST_HOME/prism-selected") == 'org.prismlauncher.PrismLauncher|prism' ]] || fail "direct Prism install skips the application ID prompt"
 pass "direct Prism install resolves and tracks the user name"
+VINSTALL_YES=0 pick editor <<< $'1\n2' 2>/dev/null
+[[ $(cat "$TEST_HOME/prism-selected") == 'org.example.Two|editor' ]] || fail "Flatpak search menu installs the selected application ID"
+pass "Flatpak app names show multiple matching results"
 have(){ command -v "$1" >/dev/null 2>&1; }
 
 if aur_preflight 'not a valid package name' >/dev/null 2>&1; then

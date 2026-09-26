@@ -128,8 +128,8 @@ selected for installation.
 `--source` skips that selection and targets one backend. `--yes` selects the
 first available backend, preferring AUR for `-A`. The shortcut `vsc` (also
 `vscode` and `visual-studio-code`) maps to the package name or application ID
-used by each backend. For other Flatpak applications, use the exact
-application ID when selecting directly.
+used by each backend. For Flatpak, enter an app name or search phrase; vinstall
+shows matching app names and installs the ID for the selected result.
 `minecraft` (or `mc`) opens a launcher menu with Prism Launcher, the official
 Minecraft Launcher, and ATLauncher. Prism is the default for `--yes`; choosing
 a launcher then checks which backends provide it. `-Ss minecraft` also lists
