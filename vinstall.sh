@@ -2,7 +2,7 @@
 set -u
 set -o pipefail
 
-VERSION="2.9"
+VERSION="2.10"
 APP_NAME="vinstall"
 SOURCE_URL="https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh"
 CHECKSUM_URL="https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh.sha256"
@@ -246,6 +246,36 @@ ensure_arch(){
   fi
 }
 
+prepare_nix_store(){
+  local nix_dir="${1:-/nix}" nix_user
+  if [[ "$(id -u)" -eq 0 ]]; then
+    warn "Run Nix setup as your normal user, not root."
+    return 1
+  fi
+  if [[ -d "$nix_dir" ]]; then
+    [[ -w "$nix_dir" ]] && return 0
+    if [[ -z "$(find "$nix_dir" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+      nix_user=$(id -un)
+      sudo chown "$nix_user" "$nix_dir" || {
+        warn "Could not make the empty $nix_dir directory writable by $nix_user."
+        return 1
+      }
+      [[ -w "$nix_dir" ]] && return 0
+    fi
+    warn "The existing $nix_dir is not writable and contains data; refusing to change its ownership."
+    return 1
+  fi
+  nix_user=$(id -un)
+  sudo mkdir -m 0755 "$nix_dir" && sudo chown "$nix_user" "$nix_dir" || {
+    warn "Could not prepare writable $nix_dir. This host may have a read-only root filesystem; Nix needs a writable /nix store."
+    return 1
+  }
+  [[ -w "$nix_dir" ]] || {
+    warn "The $nix_dir directory is still not writable by $nix_user."
+    return 1
+  }
+}
+
 aur_find(){
   local query results
   have curl && have jq || return 0
@@ -288,6 +318,7 @@ ensure_nix(){
   fi
 
   echo "Nix is not installed. Installing the single-user Nix backend..."
+  prepare_nix_store || return 1
   if ! have curl && ! have wget; then
     install_system_packages curl || { warn "Could not install curl for the Nix installer."; return 1; }
   fi

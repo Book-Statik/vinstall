@@ -172,6 +172,19 @@ fi
 pass "AUR preflight rejects invalid package names"
 
 nix_ready=0
+sudo(){ "$@"; }
+prepare_nix_store "$TEST_HOME/nix-store" >/dev/null || fail "Nix store directory can be prepared"
+[[ -d "$TEST_HOME/nix-store" && -w "$TEST_HOME/nix-store" ]] || fail "prepared Nix store is writable"
+pass "Nix setup prepares a writable store directory"
+sudo(){ return 1; }
+if prepare_nix_store "$TEST_HOME/nix-store-fail" >/dev/null 2>&1; then
+  fail "Nix store preparation reports permission failure"
+fi
+[[ ! -e "$TEST_HOME/nix-store-fail" ]] || fail "failed Nix preparation leaves no partial path"
+pass "Nix setup reports an unwritable store path"
+sudo(){ "$@"; }
+
+prepare_nix_store(){ return 0; }
 have(){ [[ "$1" == curl ]] || [[ "$1" == nix && "$nix_ready" == 1 ]]; }
 curl(){ printf ':\n'; }
 source_nix(){ nix_ready=1; }

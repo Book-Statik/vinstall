@@ -20,7 +20,11 @@ the Arch Distrobox container with `yay` for AUR packages. Void repository
 prompts are shown only on Void. Creating the Arch container downloads an Arch
 image and builds `yay`, so setup may take several minutes. If setup reports a
 Nix or AUR warning, it identifies the failed step; rerun setup after resolving
-it. On rpm-ostree hosts, newly layered tools may require a reboot before use.
+it. Nix requires a writable `/nix` directory; setup creates it with the
+appropriate user ownership when missing. If an immutable host rejects writes
+to `/nix` even with `sudo`, use a writable `/nix` mount or run Nix-backed
+packages in a container. On rpm-ostree hosts, newly layered tools may require
+a reboot before use.
 
 ## Install and run
 
