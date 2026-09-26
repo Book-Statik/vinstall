@@ -119,6 +119,24 @@ vinstall -Syu
 vinstall --doctor
 ```
 
+## Fastfetch
+
+Fastfetch should continue to show your real distribution as the OS. To also
+show vinstall as your package-management frontend, append this object to the
+`modules` array in your existing `~/.config/fastfetch/config.jsonc`:
+
+```jsonc
+{
+	"type": "command",
+	"key": "Package Manager",
+	"text": "vinstall --fastfetch"
+}
+```
+
+This adds a `Package Manager: vinstall` line without replacing your Fastfetch
+configuration. The helper prints only `vinstall`, so it is suitable for a
+Fastfetch command module.
+
 `-S` presents the available backends that contain a result and asks you to
 choose one. AUR is used only when the system manager, Nix, and Flatpak have no
 result. `-A` is the

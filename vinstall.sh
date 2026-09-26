@@ -2,7 +2,7 @@
 set -u
 set -o pipefail
 
-VERSION="2.5"
+VERSION="2.6"
 APP_NAME="vinstall"
 SOURCE_URL="https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh"
 CHECKSUM_URL="https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh.sha256"
@@ -698,6 +698,7 @@ vinstall — package manager frontend for Linux
   vinstall -Qi <name>    Show tracked package information
   vinstall --setup       One-time automatic backend setup
   vinstall --doctor      Diagnose the installation
+  vinstall --fastfetch   Print the Fastfetch package-manager value
   vinstall --uninstall   Remove vinstall but keep package state
   vinstall --help        Help
 
@@ -708,6 +709,7 @@ Use `vsc` (or `vscode`) as a shortcut for Visual Studio Code.
 Use `vinstall -S minecraft` for a curated launcher selection.
 Use `prism` (or `prismlauncher`) to resolve Prism Launcher directly.
 For Flatpak, search by app name and choose a match; IDs are resolved automatically.
+Fastfetch config can use a command module with text: "vinstall --fastfetch".
 EOF
 }
 
@@ -755,6 +757,7 @@ main(){
   [[ $# -gt 0 ]] || { usage; exit 0; }
 
   case "$1" in
+    --fastfetch) printf 'vinstall\n' ;;
     -Syu|-Syyu) update ;;
     --repair)
       [[ $# -ge 2 ]] || die "Usage: vinstall --repair <package>"

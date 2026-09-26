@@ -21,6 +21,9 @@ pass(){ printf 'ok - %s\n' "$1"; }
 [[ "$(shell_quote "package name")" == "package\ name" ]] || fail "shell_quote escapes spaces"
 pass "shell_quote escapes spaces"
 
+[[ "$(VINSTALL_SOURCE_ONLY=0 bash "$ROOT/vinstall.sh" --fastfetch)" == vinstall ]] || fail "Fastfetch helper prints the package-manager name"
+pass "Fastfetch helper prints vinstall"
+
 db_add xbps example example 1.0
 grep -Fq $'xbps\texample\texample\t1.0' "$DB" || fail "db_add records a package"
 pass "db_add records a package"
