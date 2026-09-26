@@ -93,6 +93,11 @@ pass "native backend wins over AUR"
 [[ "$(package_for aur vsc)" == visual-studio-code-bin ]] || fail "vsc resolves to the AUR package"
 pass "vsc resolves to backend-specific package names"
 
+[[ "$(package_for flatpak prism)" == org.prismlauncher.PrismLauncher ]] || fail "prism resolves to the Flatpak application ID"
+[[ "$(package_for flatpak prism-launcher)" == org.prismlauncher.PrismLauncher ]] || fail "prism-launcher resolves to the Flatpak application ID"
+[[ "$(package_for flatpak prismlauncher)" == org.prismlauncher.PrismLauncher ]] || fail "prismlauncher resolves to the Flatpak application ID"
+pass "Prism Launcher aliases resolve to its Flatpak ID"
+
 [[ "$(package_for flatpak minecraft-prism)" == org.prismlauncher.PrismLauncher ]] || fail "Prism Launcher resolves to its Flatpak ID"
 [[ "$(package_for aur minecraft-official)" == minecraft-launcher ]] || fail "official launcher resolves to its AUR package"
 [[ "$(package_for aur minecraft-atlauncher)" == atlauncher ]] || fail "ATLauncher resolves to its AUR package"
@@ -121,6 +126,15 @@ VINSTALL_YES=1 pick minecraft
 VINSTALL_YES=0 pick minecraft <<< $'2\n1' 2>/dev/null
 [[ $(cat "$TEST_HOME/alias-selected") == 'minecraft-launcher|minecraft' ]] || fail "minecraft can select the official launcher"
 pass "Minecraft choices install their package and retain the typed name"
+
+native_has(){ return 1; }
+have(){ [[ "$1" == flatpak ]]; }
+flat_find(){ [[ "$1" == org.prismlauncher.PrismLauncher ]] && printf 'Prism Launcher result\n'; }
+install_flat(){ printf '%s|%s' "$1" "$2" > "$TEST_HOME/prism-selected"; }
+VINSTALL_YES=0 pick prism <<< '1' 2>/dev/null
+[[ $(cat "$TEST_HOME/prism-selected") == 'org.prismlauncher.PrismLauncher|prism' ]] || fail "direct Prism install skips the application ID prompt"
+pass "direct Prism install resolves and tracks the user name"
+have(){ command -v "$1" >/dev/null 2>&1; }
 
 if aur_preflight 'not a valid package name' >/dev/null 2>&1; then
   fail "AUR preflight accepts invalid package names"

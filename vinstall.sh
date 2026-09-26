@@ -2,7 +2,7 @@
 set -u
 set -o pipefail
 
-VERSION="2.3"
+VERSION="2.4"
 APP_NAME="vinstall"
 SOURCE_URL="https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh"
 CHECKSUM_URL="https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh.sha256"
@@ -140,7 +140,7 @@ package_for(){
         aur) printf 'visual-studio-code-bin' ;;
         *) printf 'code' ;;
       esac ;;
-    minecraft-prism)
+    minecraft-prism|prism|prism-launcher|prismlauncher)
       case "$source" in
         flatpak) printf 'org.prismlauncher.PrismLauncher' ;;
         *) printf 'prismlauncher' ;;
@@ -669,6 +669,7 @@ Nix, and the isolated Arch/AUR backend are optional additional sources.
 Supported native managers: XBPS, APT, DNF, rpm-ostree, Zypper, and Pacman.
 Use `vsc` (or `vscode`) as a shortcut for Visual Studio Code.
 Use `vinstall -S minecraft` for a curated launcher selection.
+Use `prism` (or `prismlauncher`) to resolve Prism Launcher directly.
 EOF
 }
 

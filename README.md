@@ -109,6 +109,7 @@ vinstall -A visual-studio-code-bin
 vinstall -S vsc
 vinstall -S minecraft
 vinstall -Ss minecraft
+vinstall -S prism
 vinstall -Q
 vinstall -Qi firefox
 vinstall -R firefox
@@ -136,6 +137,9 @@ these common choices alongside repository search results. There is no single
 complete cross-distro database of human names and package IDs, so these
 multi-choice mappings are curated; other names continue through the normal
 backend searches.
+`prism`, `prism-launcher`, and `prismlauncher` all resolve directly to Prism
+Launcher, including its Flathub application ID, so Flatpak installs do not
+need a second ID prompt.
 When needed, the AUR backend creates an Arch Linux container named
 `vinstall-arch` and installs `yay` inside it. Set `VINSTALL_ARCH_BOX` to use a
 different container name.
