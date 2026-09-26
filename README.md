@@ -1,21 +1,23 @@
 # vinstall
 
-`vinstall` is a package-management frontend for Void Linux. It searches and
-installs packages through XBPS, Nix, Flatpak, and an optional Arch Linux
-Distrobox container for AUR packages. Native Void packages should be preferred
-when more than one backend provides the software.
+`vinstall` is a package-management frontend for Linux. It uses the host's
+native package manager (XBPS, APT, DNF, rpm-ostree, Zypper, or Pacman), with
+optional Nix, Flatpak, and an Arch Linux Distrobox container for AUR packages.
+The native package manager is preferred when more than one backend provides
+the software.
 
 ## Requirements
 
-- Void Linux with `xbps-install`
+- A supported Linux package manager: XBPS, APT, DNF, rpm-ostree, Zypper, or
+	Pacman
 - A normal user account with `sudo` access
 - Internet access for package searches and installation
 - Bash
 
-The `--setup` command installs the helper tools (`curl`, `ca-certificates`,
-`git`, `jq`, `distrobox`, and `flatpak`) and can initialize Nix, Flathub, and
-optional Void repositories. The Arch/AUR container is created lazily only
-when an AUR package is actually selected for installation.
+The `--setup` command installs helper tools through the detected system
+package manager and can initialize Nix and Flathub. Void repository prompts
+are shown only on Void. The Arch/AUR container is created lazily only when an
+AUR package is selected for installation.
 
 ## Install and run
 
@@ -26,7 +28,7 @@ Download the latest installer directly from GitHub:
 [Download vinstall.sh](https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh)
 
 To install the command directly without first saving the file manually, run
-this in a Void Linux terminal:
+this in a Linux terminal:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh | sudo tee /usr/local/bin/vinstall >/dev/null && sudo chmod 755 /usr/local/bin/vinstall && vinstall --setup
@@ -77,14 +79,14 @@ If you do not want to install the command globally, run it directly instead:
 ```text
 vinstall -S <name>       Search available backends and install a selection
 vinstall -S --source <backend> <name>
-						 Install from xbps, nix, flatpak, or aur directly
+						 Install from the system manager, nix, flatpak, or aur
 vinstall -S <name> --source <backend>
 						 Equivalent source-selection form
 vinstall -A <name>       Search all backends, including the AUR, and install
-vinstall -Ss <query>     Search XBPS, Nixpkgs, Flathub, and the AUR
+vinstall -Ss <query>     Search the system manager, Nixpkgs, Flathub, and AUR
 vinstall -R <name>       Remove a package tracked by vinstall
-vinstall -Syu            Update Void, Nix, Flatpak, and the AUR backend
-vinstall --repair <name> Force-reinstall a Void package through XBPS
+vinstall -Syu            Update system packages, Nix, Flatpak, and AUR
+vinstall --repair <name> Reinstall a native package where supported
 vinstall --repair-vinstall Download and validate a fresh vinstall command
 vinstall -Q              List packages tracked by vinstall
 vinstall -Qi <name>      Show tracked package information
@@ -101,9 +103,10 @@ Examples:
 ```sh
 vinstall -Ss firefox
 vinstall -S firefox
-vinstall -S --source xbps firefox
+vinstall -S --source apt firefox
 vinstall --yes -S firefox
 vinstall -A visual-studio-code-bin
+vinstall -S vsc
 vinstall -Q
 vinstall -Qi firefox
 vinstall -R firefox
@@ -113,17 +116,24 @@ vinstall -Syu
 vinstall --doctor
 ```
 
-`-S` presents the native backends that contain a result and asks you to choose
-one. AUR is used only when XBPS, Nix, and Flatpak have no result. `-A` is the
+`-S` presents the available backends that contain a result and asks you to
+choose one. AUR is used only when the system manager, Nix, and Flatpak have no
+result. `-A` is the
 explicit escape hatch that also searches AUR. AUR search uses the public API
 and does not open Distrobox; Distrobox is entered only after an AUR package is
 selected for installation.
 `--source` skips that selection and targets one backend. `--yes` selects the
-first available backend, preferring AUR for `-A`. For Flatpak, use the exact
-application ID rather than a search phrase when selecting it directly.
+first available backend, preferring AUR for `-A`. The shortcut `vsc` (also
+`vscode` and `visual-studio-code`) maps to the package name or application ID
+used by each backend. For other Flatpak applications, use the exact
+application ID when selecting directly.
 When needed, the AUR backend creates an Arch Linux container named
 `vinstall-arch` and installs `yay` inside it. Set `VINSTALL_ARCH_BOX` to use a
 different container name.
+
+On Bazzite and other rpm-ostree systems, native package installs and removals
+are layered into a new deployment and require a reboot. Flatpak or Distrobox
+is generally preferable for desktop applications on an immutable host.
 
 Before an AUR download, vinstall contacts the official AUR API over HTTPS,
 rejects missing, orphaned, or out-of-date packages, downloads only the
@@ -154,15 +164,17 @@ Run the diagnostic command first:
 vinstall --doctor
 ```
 
-If XBPS is missing, this is not a Void Linux environment. If a backend is
-unavailable, rerun `vinstall --setup` or install that backend manually. The
+If no supported native package manager is found, check that the host provides
+XBPS, APT, DNF, rpm-ostree, Zypper, or Pacman. If an optional backend is
+unavailable, rerun `vinstall --setup` or install it manually. The
 Nix installer may require a new terminal before the `nix` command is visible.
 If setup reports warnings, run `vinstall --doctor` and address the unavailable
 backend before installing packages through it. A failed package removal keeps
 the package in vinstall's tracking database so it can be retried.
-For a broken Void package, `vinstall --repair <name>` directly runs XBPS with
-repository sync and force-reinstall flags. It applies only to XBPS packages;
-use the package's own backend for Nix, Flatpak, or AUR repairs.
+For a broken native package, `vinstall --repair <name>` invokes the host
+package manager's reinstall operation. rpm-ostree does not support package
+reinstallation through this command. Use the package's own backend for Nix,
+Flatpak, or AUR repairs.
 If vinstall itself is damaged, `vinstall --repair-vinstall` downloads the
 latest script and its SHA-256 checksum from GitHub, validates both the
 checksum and Bash syntax, and replaces the installed command while preserving

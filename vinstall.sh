@@ -2,7 +2,7 @@
 set -u
 set -o pipefail
 
-VERSION="2.1"
+VERSION="2.2"
 APP_NAME="vinstall"
 SOURCE_URL="https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh"
 CHECKSUM_URL="https://raw.githubusercontent.com/Book-Statik/vinstall/main/vinstall.sh.sha256"
@@ -24,7 +24,21 @@ ok(){ printf '  ✓ %s
 ' "$*"; }
 warn(){ printf '  ! %s
 ' "$*" >&2; }
-need_void(){ have xbps-install || die "XBPS was not found. This program requires Void Linux."; }
+native_backend(){
+  if have xbps-install; then printf 'xbps';
+  elif have rpm-ostree; then printf 'rpm-ostree';
+  elif have apt-get; then printf 'apt';
+  elif have dnf; then printf 'dnf';
+  elif have zypper; then printf 'zypper';
+  elif have pacman; then printf 'pacman';
+  else return 1
+  fi
+}
+need_native(){
+  local backend
+  backend=$(native_backend)
+  [[ -n "$backend" ]] || die "No supported system package manager found (XBPS, APT, DNF, rpm-ostree, Zypper, or Pacman)."
+}
 source_nix(){
   if [ -f "$HOME/.nix-profile/etc/profile.d/nix.sh" ]; then
     . "$HOME/.nix-profile/etc/profile.d/nix.sh"
@@ -36,10 +50,52 @@ source_nix(){
 shell_quote(){ printf '%q' "$1"; }
 
 xbps_find(){ xbps-query -Rs "$1" 2>/dev/null | grep -E '^[^ ]' | head -30 || true; }
+native_find(){
+  local backend
+  backend=$(native_backend)
+  case "$backend" in
+    xbps) xbps_find "$1" ;;
+    apt) apt-cache search --names-only "$1" 2>/dev/null | head -30 || true ;;
+    dnf) dnf search "$1" 2>/dev/null | head -30 || true ;;
+    rpm-ostree) rpm-ostree search "$1" 2>/dev/null | head -30 || true ;;
+    zypper) zypper search "$1" 2>/dev/null | head -30 || true ;;
+    pacman) pacman -Ss "$1" 2>/dev/null | head -30 || true ;;
+  esac
+}
+native_has(){
+  local package="$1" backend
+  backend=$(native_backend)
+  case "$backend" in
+    xbps) xbps-query -Rs "$package" 2>/dev/null | awk -v p="$package" 'index($2, p "-") == 1 { found=1 } END { exit !found }' ;;
+    apt) apt-cache show "$package" 2>/dev/null | grep -q '^Package:' ;;
+    dnf) dnf list --available --quiet "$package" 2>/dev/null | awk -v p="$package" 'index($1, p ".") == 1 { found=1 } END { exit !found }' ;;
+    rpm-ostree) rpm-ostree search "$package" 2>/dev/null | awk -v p="$package" '$1 == p { found=1 } END { exit !found }' ;;
+    zypper) zypper --non-interactive search --match-exact --type package "$package" 2>/dev/null | awk -F '|' -v p="$package" '{ gsub(/^[ \t]+|[ \t]+$/, "", $2); if ($2 == p) found=1 } END { exit !found }' ;;
+    pacman) pacman -Si "$package" >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
 flat_find(){ have flatpak || return 0; flatpak search "$1" 2>/dev/null | head -30 || true; }
 nix_find(){ have nix || return 0; nix search nixpkgs "$1" 2>/dev/null | head -30 || true; }
 arch_exists(){ have distrobox || return 1; distrobox list --no-color 2>/dev/null | awk '{print $1}' | grep -Fxq "$ARCHBOX"; }
 arch(){ distrobox enter "$ARCHBOX" -- bash -lc "$*"; }
+
+package_for(){
+  local source="$1" requested="$2" alias
+  alias=${requested,,}
+  alias=${alias// /-}
+  case "$alias" in
+    vsc|vscode|visual-studio-code)
+      case "$source" in
+        xbps) printf 'vscodium' ;;
+        flatpak) printf 'com.visualstudio.code' ;;
+        nix) printf 'vscode' ;;
+        aur) printf 'visual-studio-code-bin' ;;
+        *) printf 'code' ;;
+      esac ;;
+    *) printf '%s' "$requested" ;;
+  esac
+}
 
 aur_preflight(){
   local package="$1" metadata maintainer out_of_date pkgbuild
@@ -84,7 +140,7 @@ aur_preflight(){
 }
 
 ensure_arch(){
-  have distrobox || die "Distrobox is required for AUR support. Install it with: sudo xbps-install -Sy distrobox"
+  have distrobox || die "Distrobox is required for AUR support. Install it with your system package manager."
   if ! arch_exists; then
     echo "Creating isolated Arch Linux environment for AUR..."
     distrobox create --name "$ARCHBOX" --image archlinux:latest --yes || die "Could not create Arch container."
@@ -138,42 +194,64 @@ ensure_nix(){
   fi
 
   echo "Nix is not installed. Installing the single-user Nix backend..."
-  have curl || sudo xbps-install -Sy curl
+  if ! have curl; then install_system_packages curl || return 1; fi
   bash <(curl -L https://nixos.org/nix/install) --no-daemon
   source_nix
   have nix || die "Nix installation completed but nix is not available in this shell. Open a new terminal and run vinstall again."
 }
 
 install_xbps(){
-  local p="$1"
+  local p="$1" requested="${2:-$1}"
   sudo xbps-install -Sy "$p" || return 1
   local v
   v=$(xbps-query -p pkgver "$p" 2>/dev/null || echo unknown)
-  db_add xbps "$p" "$p" "$v"
+  db_add xbps "$p" "$requested" "$v"
   ok "Installed $p through XBPS"
 }
 
+install_native(){
+  local p="$1" requested="${2:-$1}" backend version
+  backend=$(native_backend)
+  case "$backend" in
+    xbps) install_xbps "$p" "$requested"; return $? ;;
+    apt) sudo apt-get update && sudo apt-get install -y "$p" || return 1
+      version=$(dpkg-query -W -f='${Version}' "$p" 2>/dev/null || echo unknown) ;;
+    dnf) sudo dnf install -y "$p" || return 1
+      version=$(rpm -q --qf '%{VERSION}-%{RELEASE}' "$p" 2>/dev/null || echo unknown) ;;
+    rpm-ostree) sudo rpm-ostree install --assumeyes "$p" || return 1
+      version=$(rpm -q --qf '%{VERSION}-%{RELEASE}' "$p" 2>/dev/null || echo unknown) ;;
+    zypper) sudo zypper --non-interactive install "$p" || return 1
+      version=$(rpm -q --qf '%{VERSION}-%{RELEASE}' "$p" 2>/dev/null || echo unknown) ;;
+    pacman) sudo pacman -S --needed --noconfirm "$p" || return 1
+      version=$(pacman -Q "$p" 2>/dev/null | awk '{print $2}' || echo unknown) ;;
+    *) warn "No supported native package manager is available."; return 1 ;;
+  esac
+  db_add "$backend" "$p" "$requested" "$version"
+  ok "Installed $p through $backend"
+  [[ "$backend" != rpm-ostree ]] || warn "Bazzite applies layered packages after reboot."
+}
+
 install_flat(){
-  local id="$1"
+  local id="$1" requested="${2:-$1}"
   flatpak install --user -y flathub "$id" || return 1
   local v
   v=$(flatpak info --user --show-version "$id" 2>/dev/null || echo unknown)
-  db_add flatpak "$id" "$id" "$v"
+  db_add flatpak "$id" "$requested" "$v"
   ok "Installed $id through Flatpak"
 }
 
 install_nix(){
-  local p="$1"
+  local p="$1" requested="${2:-$1}"
   ensure_nix || return 1
   nix profile install "nixpkgs#$p" || return 1
   local v
   v=$(nix profile list 2>/dev/null | grep -m1 "$p" || echo unknown)
-  db_add nix "$p" "$p" "$v"
+  db_add nix "$p" "$requested" "$v"
   ok "Installed $p through Nix"
 }
 
 install_aur(){
-  local p="$1"
+  local p="$1" requested="${2:-$1}"
   aur_preflight "$p" || return 1
   ensure_arch || return 1
   local package
@@ -181,25 +259,26 @@ install_aur(){
   arch "yay -S --needed --noconfirm $package" || return 1
   local v
   v=$(arch "pacman -Q $package 2>/dev/null | awk '{print \$2}'" || echo unknown)
-  db_add aur "$p" "$p" "$v"
+  db_add aur "$p" "$requested" "$v"
   arch "command -v distrobox-export >/dev/null 2>&1 && distrobox-export --app $(shell_quote "$p") >/dev/null 2>&1 || true"
   ok "Installed $p through the isolated AUR backend"
 }
 
 search(){
-  local q="$1"
-  echo "=== XBPS / Void ==="
-  xbps_find "$q" || true
+  local q="$1" native
+  native=$(native_backend)
+  echo "=== System packages${native:+ / $native} ==="
+  [[ -z "$native" ]] || native_find "$(package_for "$native" "$q")" || true
   echo
   echo "=== Nixpkgs ==="
-  nix_find "$q" || true
+  nix_find "$(package_for nix "$q")" || true
   echo
   echo "=== Flathub ==="
-  flat_find "$q" || true
+  flat_find "$(package_for flatpak "$q")" || true
   echo
   echo "=== AUR ==="
   if have distrobox; then
-    aur_find "$q" || true
+    aur_find "$(package_for aur "$q")" || true
   else
     echo "(AUR backend not initialized; vinstall --setup to enable it)"
   fi
@@ -208,14 +287,16 @@ search(){
 pick(){
   local q="$1"
   local preferred="${2:-}"
+  local native package
   local -a src=()
 
-  if xbps_find "$q" | grep -q .; then src+=(xbps); fi
-  if have nix && nix_find "$q" | grep -q .; then src+=(nix); fi
-  if have flatpak && flat_find "$q" | grep -q .; then src+=(flatpak); fi
+  native=$(native_backend)
+  if [[ -n "$native" ]] && native_has "$(package_for "$native" "$q")"; then src+=("$native"); fi
+  if have nix && nix_find "$(package_for nix "$q")" | grep -q .; then src+=(nix); fi
+  if have flatpak && flat_find "$(package_for flatpak "$q")" | grep -q .; then src+=(flatpak); fi
 
   if ((${#src[@]} == 0)) || [[ "${VINSTALL_FORCE_AUR:-0}" == "1" ]]; then
-    if aur_find "$q" | grep -q .; then src+=(aur); fi
+    if aur_find "$(package_for aur "$q")" | grep -q .; then src+=(aur); fi
   fi
 
   ((${#src[@]})) || die "No package found for '$q'. Try: vinstall -Ss $q"
@@ -231,11 +312,13 @@ pick(){
       *) die "Source '$preferred' has no result for '$q'." ;;
     esac
     case "$preferred" in
-      xbps) install_xbps "$q" ;;
-      nix) install_nix "$q" ;;
-      flatpak) install_flat "$q" ;;
-      aur) install_aur "$q" ;;
-      *) die "Unknown source '$preferred'. Choose xbps, nix, flatpak, or aur." ;;
+      xbps|apt|dnf|rpm-ostree|zypper|pacman)
+        [[ "$preferred" == "$native" ]] || die "Source '$preferred' is not this system's native package manager."
+        install_native "$(package_for "$preferred" "$q")" "$q" ;;
+      nix) install_nix "$(package_for nix "$q")" "$q" ;;
+      flatpak) install_flat "$(package_for flatpak "$q")" "$q" ;;
+      aur) install_aur "$(package_for aur "$q")" "$q" ;;
+      *) die "Unknown source '$preferred'. Choose the system manager, nix, flatpak, or aur." ;;
     esac
     return
   fi
@@ -254,14 +337,17 @@ pick(){
 
   s="${src[$((n - 1))]}"
   case "$s" in
-    xbps) install_xbps "$q" ;;
-    nix) install_nix "$q" ;;
+    xbps|apt|dnf|rpm-ostree|zypper|pacman) install_native "$(package_for "$s" "$q")" "$q" ;;
+    nix) install_nix "$(package_for nix "$q")" "$q" ;;
     flatpak)
-      echo "Flatpak search results may use an application ID."
-      read -r -p "Application ID (or exact result ID): " id
-      install_flat "$id"
+      id=$(package_for flatpak "$q")
+      if [[ "$id" == "$q" ]]; then
+        echo "Flatpak search results may use an application ID."
+        read -r -p "Application ID (or exact result ID): " id
+      fi
+      install_flat "$id" "$q"
       ;;
-    aur) install_aur "$q" ;;
+    aur) install_aur "$(package_for aur "$q")" "$q" ;;
   esac
 }
 
@@ -273,6 +359,12 @@ remove(){
       found=1
       case "$s" in
         xbps) sudo xbps-remove -y "$p" || return 1 ;;
+        apt) sudo apt-get remove -y "$p" || return 1 ;;
+        dnf) sudo dnf remove -y "$p" || return 1 ;;
+        rpm-ostree) sudo rpm-ostree uninstall --assumeyes "$p" || return 1
+          warn "Bazzite applies package removals after reboot." ;;
+        zypper) sudo zypper --non-interactive remove "$p" || return 1 ;;
+        pacman) sudo pacman -Rns --noconfirm "$p" || return 1 ;;
         flatpak) flatpak uninstall --user -y "$p" || return 1 ;;
         nix) ensure_nix && nix profile remove "nixpkgs#$p" || return 1 ;;
         aur)
@@ -288,10 +380,20 @@ remove(){
 }
 
 update(){
-  need_void
-  echo "=== Updating Void Linux ==="
-  sudo xbps-install -Su || die "Void update failed."
-  ok "Void Linux is updated"
+  need_native
+  local backend
+  backend=$(native_backend)
+  echo "=== Updating system packages ($backend) ==="
+  case "$backend" in
+    xbps) sudo xbps-install -Su || die "XBPS update failed." ;;
+    apt) sudo apt-get update && sudo apt-get upgrade -y || die "APT update failed." ;;
+    dnf) sudo dnf upgrade --refresh -y || die "DNF update failed." ;;
+    rpm-ostree) sudo rpm-ostree upgrade || die "rpm-ostree update failed."
+      warn "Bazzite applies the new deployment after reboot." ;;
+    zypper) sudo zypper --non-interactive refresh && sudo zypper --non-interactive update || die "Zypper update failed." ;;
+    pacman) sudo pacman -Syu --noconfirm || die "Pacman update failed." ;;
+  esac
+  ok "System packages are updated"
 
   if have nix; then
     echo
@@ -313,7 +415,7 @@ update(){
 
   echo
   echo "=== Cleanup ==="
-  sudo xbps-remove -Oy || true
+  if [[ "$backend" == xbps ]]; then sudo xbps-remove -Oy || true; fi
   if have nix; then nix store gc || true; fi
   if have flatpak; then flatpak uninstall --user --unused -y || true; fi
   ok "Update complete"
@@ -321,10 +423,39 @@ update(){
 
 repair_xbps(){
   local package="$1"
-  need_void
+  have xbps-install || die "XBPS was not found."
   echo "Repairing $package through XBPS..."
   sudo xbps-install -Sfy "$package" || die "XBPS could not repair $package."
   ok "Reinstalled $package through XBPS"
+}
+
+repair_native(){
+  local package="$1" backend
+  backend=$(native_backend)
+  case "$backend" in
+    xbps) repair_xbps "$package"; return $? ;;
+    apt) sudo apt-get install --reinstall -y "$package" || die "APT could not repair $package." ;;
+    dnf) sudo dnf reinstall -y "$package" || die "DNF could not repair $package." ;;
+    zypper) sudo zypper --non-interactive install --force "$package" || die "Zypper could not repair $package." ;;
+    pacman) sudo pacman -S --noconfirm "$package" || die "Pacman could not repair $package." ;;
+    rpm-ostree) die "rpm-ostree does not support package reinstall; use the system's rollback or rebase workflow." ;;
+    *) die "No supported system package manager is available." ;;
+  esac
+  ok "Reinstalled $package through $backend"
+}
+
+install_system_packages(){
+  local backend
+  backend=$(native_backend)
+  case "$backend" in
+    xbps) sudo xbps-install -Sy "$@" ;;
+    apt) sudo apt-get update && sudo apt-get install -y "$@" ;;
+    dnf) sudo dnf install -y "$@" ;;
+    rpm-ostree) sudo rpm-ostree install --assumeyes "$@" ;;
+    zypper) sudo zypper --non-interactive install "$@" ;;
+    pacman) sudo pacman -S --needed --noconfirm "$@" ;;
+    *) return 1 ;;
+  esac
 }
 
 repair_vinstall(){
@@ -365,21 +496,37 @@ repair_vinstall(){
 }
 
 setup(){
-  local setup_warnings=0
-  need_void
+  local setup_warnings=0 backend
+  local -a helpers
+  need_native
+  backend=$(native_backend)
   echo "vinstall setup"
   echo
   echo "Installing the native helpers vinstall uses..."
-  sudo xbps-install -Sy curl ca-certificates git jq distrobox flatpak || die "Could not install required helpers."
-  echo
-  read -r -p "Enable Void's official nonfree repository? [Y/n] " a
-  if [[ ! "$a" =~ ^[Nn]$ ]]; then
-    sudo xbps-install -Sy void-repo-nonfree || { warn "Could not enable the nonfree repository."; setup_warnings=1; }
+  if [[ "$backend" == rpm-ostree ]]; then
+    helpers=()
+    have curl || helpers+=(curl)
+    have git || helpers+=(git)
+    have jq || helpers+=(jq)
+    if ((${#helpers[@]})); then
+      install_system_packages "${helpers[@]}" || die "Could not install required helpers."
+    fi
+    have distrobox || { warn "Distrobox is unavailable; AUR support will not work."; setup_warnings=1; }
+    have flatpak || { warn "Flatpak is unavailable."; setup_warnings=1; }
+  else
+    install_system_packages curl ca-certificates git jq distrobox flatpak || die "Could not install required helpers."
   fi
-  echo
-  read -r -p "Enable Void's official multilib repository (x86_64 glibc only)? [y/N] " a
-  if [[ "$a" =~ ^[Yy]$ ]]; then
-    sudo xbps-install -Sy void-repo-multilib void-repo-multilib-nonfree || { warn "Could not enable the multilib repositories."; setup_warnings=1; }
+  if [[ "$backend" == xbps ]]; then
+    echo
+    read -r -p "Enable Void's official nonfree repository? [Y/n] " a
+    if [[ ! "$a" =~ ^[Nn]$ ]]; then
+      sudo xbps-install -Sy void-repo-nonfree || { warn "Could not enable the nonfree repository."; setup_warnings=1; }
+    fi
+    echo
+    read -r -p "Enable Void's official multilib repository (x86_64 glibc only)? [y/N] " a
+    if [[ "$a" =~ ^[Yy]$ ]]; then
+      sudo xbps-install -Sy void-repo-multilib void-repo-multilib-nonfree || { warn "Could not enable the multilib repositories."; setup_warnings=1; }
+    fi
   fi
   echo
   echo "Installing Nix..."
@@ -388,7 +535,7 @@ setup(){
   echo "AUR support is lazy and will create the Arch container only when an AUR package is installed."
   echo
   echo "Setting up Flathub..."
-  flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || { warn "Could not configure Flathub."; setup_warnings=1; }
+  flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || { warn "Could not configure Flathub."; setup_warnings=1; }
   if ((setup_warnings)); then
     warn "vinstall setup completed with warnings. Run vinstall --doctor."
   else
@@ -403,9 +550,10 @@ setup(){
 }
 
 doctor(){
+  local backend
   echo "vinstall doctor"
   echo
-  need_void && ok "Void/XBPS"
+  if backend=$(native_backend); then ok "System package manager: $backend"; else warn "No supported system package manager"; fi
   have flatpak && ok "Flatpak" || warn "Flatpak unavailable"
   have nix && ok "Nix" || warn "Nix unavailable"
   have distrobox && ok "Distrobox" || warn "Distrobox unavailable"
@@ -417,7 +565,7 @@ doctor(){
 
 usage(){
   cat <<'EOF'
-vinstall — universal package manager frontend for Void Linux
+vinstall — package manager frontend for Linux
 
   vinstall -S  <name>    Search sources and install
   vinstall -S --source <backend> <name>
@@ -427,9 +575,9 @@ vinstall — universal package manager frontend for Void Linux
   vinstall -A  <name>    Search all sources, including AUR, and install
   vinstall -Ss <query>   Search every backend
   vinstall -R  <name>    Remove a package installed through vinstall
-  vinstall -Syu          Update Void + Nix + Flatpak + AUR + cleanup
+  vinstall -Syu          Update system packages + Nix + Flatpak + AUR
   vinstall --repair <name>
-                          Force-reinstall a Void package through XBPS
+                          Reinstall a native package (not supported by rpm-ostree)
   vinstall --repair-vinstall
                           Download and validate a fresh vinstall command
   vinstall -Q            List packages managed by vinstall
@@ -439,8 +587,10 @@ vinstall — universal package manager frontend for Void Linux
   vinstall --uninstall   Remove vinstall but keep package state
   vinstall --help        Help
 
-The intended workflow is to use vinstall instead of xbps, pacman/yay,
-flatpak, or nix directly.
+The native backend uses the host distribution's package manager. Flatpak,
+Nix, and the isolated Arch/AUR backend are optional additional sources.
+Supported native managers: XBPS, APT, DNF, rpm-ostree, Zypper, and Pacman.
+Use `vsc` (or `vscode`) as a shortcut for Visual Studio Code.
 EOF
 }
 
@@ -473,7 +623,7 @@ install_self(){
   if [ "$(id -u)" -eq 0 ]; then
     die "Run this installer as your normal user, not root."
   fi
-  need_void
+  need_native
   sudo install -d -m 755 /usr/local/bin
   sudo install -m 755 "$0" /usr/local/bin/vinstall
   ok "Installed vinstall to /usr/local/bin"
@@ -491,7 +641,7 @@ main(){
     -Syu|-Syyu) update ;;
     --repair)
       [[ $# -ge 2 ]] || die "Usage: vinstall --repair <package>"
-      repair_xbps "$2" ;;
+      repair_native "$2" ;;
     --repair-vinstall) repair_vinstall ;;
     -S)
       if [[ "${2:-}" == "--source" ]]; then

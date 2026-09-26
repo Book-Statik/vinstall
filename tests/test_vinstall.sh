@@ -25,6 +25,16 @@ db_add xbps example example 1.0
 grep -Fq $'xbps\texample\texample\t1.0' "$DB" || fail "db_add records a package"
 pass "db_add records a package"
 
+have(){ [[ "$1" == rpm-ostree ]]; }
+[[ "$(native_backend)" == rpm-ostree ]] || fail "rpm-ostree is detected as the native manager"
+sudo(){ return 0; }
+rpm(){ printf '42.0'; }
+install_native code vsc >/dev/null 2>&1 || fail "rpm-ostree package install path failed"
+grep -Fq $'rpm-ostree\tcode\tvsc\t42.0' "$DB" || fail "rpm-ostree install tracks the vsc alias"
+pass "rpm-ostree install is tracked"
+have(){ command -v "$1" >/dev/null 2>&1; }
+sudo(){ "$@"; }
+
 sudo(){ return 1; }
 if remove example >/dev/null 2>&1; then
   fail "remove reports backend failure"
@@ -51,6 +61,8 @@ grep -Fq -- '-m 755 ' "$TEST_HOME/self-repair-command" || fail "self-repair did 
 pass "vinstall self-repair validates and installs a fresh script"
 
 xbps_find(){ printf 'example result\n'; }
+native_backend(){ printf 'xbps'; }
+native_has(){ return 0; }
 install_xbps(){ printf '%s' "$1" > "$TEST_HOME/selected"; }
 export VINSTALL_YES=1
 pick example
@@ -66,11 +78,32 @@ aur_find example >/dev/null || fail "AUR search does not work without Distrobox"
 pass "AUR search does not enter Distrobox"
 
 aur_find(){ printf 'aur result\n'; }
-install_xbps(){ printf '%s' "$1" > "$TEST_HOME/native-selected"; }
+native_backend(){ printf 'xbps'; }
+native_find(){ printf 'example result\n'; }
+install_native(){ printf '%s' "$1" > "$TEST_HOME/native-selected"; }
 unset VINSTALL_FORCE_AUR
 pick example
 [[ $(cat "$TEST_HOME/native-selected") == example ]] || fail "native backend wins over AUR"
 pass "native backend wins over AUR"
+
+[[ "$(package_for xbps vsc)" == vscodium ]] || fail "vsc resolves to the Void package"
+[[ "$(package_for apt vsc)" == code ]] || fail "vsc resolves to the Debian package"
+[[ "$(package_for flatpak vsc)" == com.visualstudio.code ]] || fail "vsc resolves to the Flatpak application ID"
+[[ "$(package_for nix vsc)" == vscode ]] || fail "vsc resolves to the Nix package"
+[[ "$(package_for aur vsc)" == visual-studio-code-bin ]] || fail "vsc resolves to the AUR package"
+pass "vsc resolves to backend-specific package names"
+
+native_backend(){ printf 'apt'; }
+native_find(){ printf 'Visual Studio Code package result\n'; }
+native_has(){ return 0; }
+nix_find(){ return 0; }
+flat_find(){ return 0; }
+aur_find(){ return 0; }
+install_native(){ printf '%s|%s' "$1" "$2" > "$TEST_HOME/alias-selected"; }
+export VINSTALL_YES=1
+pick vsc
+[[ $(cat "$TEST_HOME/alias-selected") == 'code|vsc' ]] || fail "vsc selection installs the native package and tracks its alias"
+pass "vsc selects native package and preserves requested name"
 
 if aur_preflight 'not a valid package name' >/dev/null 2>&1; then
   fail "AUR preflight accepts invalid package names"
